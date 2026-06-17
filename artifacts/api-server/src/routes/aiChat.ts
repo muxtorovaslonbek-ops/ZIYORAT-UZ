@@ -13,10 +13,17 @@ QOIDALAR:
 - Audio uchun o'qilishi qulay bo'lsin: qisqa jumlalar, ortiqcha belgilar yo'q, markdown minimal.
 - Javob 4-8 jumladan oshmasin, agar foydalanuvchi "batafsil" so'ramasa.`;
 
+const FREE_MODELS = [
+  "google/gemma-4-26b-a4b-it:free",
+  "openai/gpt-oss-120b:free",
+  "liquid/lfm-2.5-1.2b-instruct:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+];
+
 router.post("/ai-chat", async (req, res) => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    res.status(503).json({ error: "AI xizmati sozlanmagan. GEMINI_API_KEY yo'q." });
+    res.status(503).json({ error: "AI xizmati sozlanmagan." });
     return;
   }
 
@@ -26,97 +33,111 @@ router.post("/ai-chat", async (req, res) => {
     return;
   }
 
-  const history = messages.slice(0, -1).map((m: any) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-  const lastMessage = messages[messages.length - 1];
-
-  const body = JSON.stringify({
-    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-    contents: [
-      ...history,
-      { role: "user", parts: [{ text: lastMessage.content }] },
-    ],
-    generationConfig: {
-      maxOutputTokens: 1024,
-      temperature: 0.8,
-    },
-  });
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
+  const orMessages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    ...messages.map((m: any) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+  ];
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  let geminiRes: Response;
-  try {
-    geminiRes = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body,
+  let lastError = "";
+  for (const model of FREE_MODELS) {
+    const body = JSON.stringify({
+      model,
+      messages: orMessages,
+      stream: true,
+      max_tokens: 1024,
+      temperature: 0.8,
     });
-  } catch (err) {
-    req.log.error({ err }, "Gemini fetch error");
-    res.write(`data: ${JSON.stringify({ error: "AI xizmatiga ulanib bo'lmadi" })}\n\n`);
-    res.end();
-    return;
-  }
 
-  if (!geminiRes.ok) {
-    const errText = await geminiRes.text().catch(() => "");
-    req.log.error({ status: geminiRes.status, errText }, "Gemini API error");
-    let userErr = "AI xizmat xatosi";
-    if (geminiRes.status === 400) userErr = "So'rov noto'g'ri";
-    if (geminiRes.status === 401 || geminiRes.status === 403) userErr = "API kalit noto'g'ri";
-    if (geminiRes.status === 429) userErr = "So'rovlar ko'p, biroz kuting";
-    res.write(`data: ${JSON.stringify({ error: userErr })}\n\n`);
-    res.end();
-    return;
-  }
+    let orRes: Response;
+    try {
+      orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+          "HTTP-Referer": "https://ziyorat.uz",
+          "X-Title": "Ziyorat UZ AI Guide",
+        },
+        body,
+      });
+    } catch (err) {
+      req.log.error({ err, model }, "OpenRouter fetch error");
+      lastError = "Ulanish xatosi";
+      continue;
+    }
 
-  if (!geminiRes.body) {
-    res.write(`data: ${JSON.stringify({ error: "Bo'sh javob" })}\n\n`);
-    res.end();
-    return;
-  }
+    if (orRes.status === 429) {
+      lastError = "So'rovlar ko'p, biroz kuting";
+      continue;
+    }
+    if (orRes.status === 402) {
+      lastError = "Kredit yetarli emas";
+      continue;
+    }
+    if (!orRes.ok) {
+      const t = await orRes.text().catch(() => "");
+      req.log.error({ status: orRes.status, body: t, model }, "OpenRouter error");
+      lastError = `Xato (${orRes.status})`;
+      continue;
+    }
 
-  const reader = geminiRes.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
+    if (!orRes.body) {
+      lastError = "Bo'sh javob";
+      continue;
+    }
 
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    const reader = orRes.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    let gotContent = false;
 
-      buf += decoder.decode(value, { stream: true });
-      let nl: number;
-      while ((nl = buf.indexOf("\n")) !== -1) {
-        const line = buf.slice(0, nl).trimEnd();
-        buf = buf.slice(nl + 1);
-        if (!line.startsWith("data: ")) continue;
-        const jsonStr = line.slice(6).trim();
-        if (!jsonStr || jsonStr === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(jsonStr);
-          const text = parsed?.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (text) {
-            res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, nl).trimEnd();
+          buf = buf.slice(nl + 1);
+          if (!line.startsWith("data: ")) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr || jsonStr === "[DONE]") continue;
+          try {
+            const parsed = JSON.parse(jsonStr);
+            const delta = parsed?.choices?.[0]?.delta?.content;
+            if (delta) {
+              gotContent = true;
+              res.write(`data: ${JSON.stringify({ content: delta })}\n\n`);
+            }
+          } catch {
+            // skip malformed
           }
-        } catch {
-          // skip malformed chunks
         }
       }
+    } catch (err) {
+      req.log.error({ err, model }, "OpenRouter stream error");
+      if (!gotContent) {
+        lastError = "Stream uzildi";
+        continue;
+      }
     }
-  } catch (err) {
-    req.log.error({ err }, "Gemini stream read error");
-    res.write(`data: ${JSON.stringify({ error: "Stream uzildi" })}\n\n`);
+
+    if (gotContent) {
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+      return;
+    }
+    lastError = "Bo'sh javob";
   }
 
-  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  // all models failed
+  res.write(`data: ${JSON.stringify({ error: lastError || "AI xizmat ishlamadi" })}\n\n`);
   res.end();
 });
 
