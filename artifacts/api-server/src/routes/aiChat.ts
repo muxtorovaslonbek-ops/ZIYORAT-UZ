@@ -1,5 +1,4 @@
 import { Router } from "express";
-import https from "https";
 
 const router = Router();
 
@@ -27,14 +26,13 @@ router.post("/ai-chat", async (req, res) => {
     return;
   }
 
-  // Build Gemini-compatible history
   const history = messages.slice(0, -1).map((m: any) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
   const lastMessage = messages[messages.length - 1];
 
-  const requestBody = JSON.stringify({
+  const body = JSON.stringify({
     system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [
       ...history,
@@ -46,26 +44,55 @@ router.post("/ai-chat", async (req, res) => {
     },
   });
 
-  const options = {
-    hostname: "generativelanguage.googleapis.com",
-    path: `/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${apiKey}`,
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Content-Length": Buffer.byteLength(requestBody),
-    },
-  };
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=${apiKey}`;
 
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
   res.flushHeaders();
 
-  const geminiReq = https.request(options, (geminiRes) => {
-    let buf = "";
+  let geminiRes: Response;
+  try {
+    geminiRes = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Gemini fetch error");
+    res.write(`data: ${JSON.stringify({ error: "AI xizmatiga ulanib bo'lmadi" })}\n\n`);
+    res.end();
+    return;
+  }
 
-    geminiRes.on("data", (chunk: Buffer) => {
-      buf += chunk.toString();
+  if (!geminiRes.ok) {
+    const errText = await geminiRes.text().catch(() => "");
+    req.log.error({ status: geminiRes.status, errText }, "Gemini API error");
+    let userErr = "AI xizmat xatosi";
+    if (geminiRes.status === 400) userErr = "So'rov noto'g'ri";
+    if (geminiRes.status === 401 || geminiRes.status === 403) userErr = "API kalit noto'g'ri";
+    if (geminiRes.status === 429) userErr = "So'rovlar ko'p, biroz kuting";
+    res.write(`data: ${JSON.stringify({ error: userErr })}\n\n`);
+    res.end();
+    return;
+  }
+
+  if (!geminiRes.body) {
+    res.write(`data: ${JSON.stringify({ error: "Bo'sh javob" })}\n\n`);
+    res.end();
+    return;
+  }
+
+  const reader = geminiRes.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buf += decoder.decode(value, { stream: true });
       let nl: number;
       while ((nl = buf.indexOf("\n")) !== -1) {
         const line = buf.slice(0, nl).trimEnd();
@@ -79,36 +106,18 @@ router.post("/ai-chat", async (req, res) => {
           if (text) {
             res.write(`data: ${JSON.stringify({ content: text })}\n\n`);
           }
-        } catch {}
+        } catch {
+          // skip malformed chunks
+        }
       }
-    });
-
-    geminiRes.on("end", () => {
-      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
-      res.end();
-    });
-
-    geminiRes.on("error", (err: Error) => {
-      req.log.error({ err }, "Gemini stream error");
-      res.write(`data: ${JSON.stringify({ error: "Stream xatosi" })}\n\n`);
-      res.end();
-    });
-  });
-
-  geminiReq.on("error", (err: Error) => {
-    req.log.error({ err }, "Gemini request error");
-    if (!res.headersSent) {
-      res.status(500).json({ error: "AI so'rovi amalga oshmadi" });
-    } else {
-      res.write(`data: ${JSON.stringify({ error: "Ulanish xatosi" })}\n\n`);
-      res.end();
     }
-  });
+  } catch (err) {
+    req.log.error({ err }, "Gemini stream read error");
+    res.write(`data: ${JSON.stringify({ error: "Stream uzildi" })}\n\n`);
+  }
 
-  req.on("close", () => geminiReq.destroy());
-
-  geminiReq.write(requestBody);
-  geminiReq.end();
+  res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+  res.end();
 });
 
 export default router;
