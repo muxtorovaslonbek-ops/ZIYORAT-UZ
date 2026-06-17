@@ -28,6 +28,7 @@ const TarixiyLiboslar = lazy(() => import("./pages/TarixiyLiboslar"));
 const Premium = lazy(() => import("./pages/Premium"));
 const AdminPayments = lazy(() => import("./pages/AdminPayments"));
 const AdminApplications = lazy(() => import("./pages/AdminApplications"));
+const Admin = lazy(() => import("./pages/Admin"));
 const MilliyMarket = lazy(() => import("./pages/MilliyMarket"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const AiGuideFloating = lazy(() => import("./components/AiGuideFloating").then(m => ({ default: m.AiGuideFloating })));
@@ -75,6 +76,7 @@ const App = () => (
                 <Route path="/tarixiy-liboslar" element={<TarixiyLiboslar />} />
                 <Route path="/premium" element={<Premium />} />
                 <Route path="/milliy-market" element={<MilliyMarket />} />
+                <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
                 <Route path="/admin/payments" element={<ProtectedRoute><AdminPayments /></ProtectedRoute>} />
                 <Route path="/admin/applications" element={<ProtectedRoute><AdminApplications /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
