@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -7,17 +7,20 @@ export const useIsAdmin = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const check = useCallback(async () => {
     if (!user) { setIsAdmin(false); setLoading(false); return; }
     setLoading(true);
-    supabase
+    const { data } = await supabase
       .from('user_roles')
       .select('role')
       .eq('user_id', user.id)
       .eq('role', 'admin')
-      .maybeSingle()
-      .then(({ data }) => { setIsAdmin(!!data); setLoading(false); });
+      .maybeSingle();
+    setIsAdmin(!!data);
+    setLoading(false);
   }, [user]);
 
-  return { isAdmin, loading };
+  useEffect(() => { check(); }, [check]);
+
+  return { isAdmin, loading, refetch: check };
 };
