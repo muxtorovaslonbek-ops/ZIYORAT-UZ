@@ -3,7 +3,6 @@ import { Mic, MicOff, Send, Volume2, VolumeX, Sparkles, Loader2, X } from 'lucid
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { speakMale, stopSpeaking } from '@/lib/voice';
-import { supabase } from '@/integrations/supabase/client';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 
@@ -12,7 +11,6 @@ interface Props {
   onClose?: () => void;
 }
 
-// Browser SpeechRecognition (vendor-prefixed)
 const SR: any =
   typeof window !== 'undefined'
     ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
@@ -38,7 +36,6 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
-  // Stop TTS + abort streaming when component unmounts (e.g. widget closed, page left)
   useEffect(() => {
     return () => {
       if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -49,14 +46,12 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
     };
   }, []);
 
-  // Stop TTS when user toggles it off
   useEffect(() => {
     if (!ttsOn && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
   }, [ttsOn]);
 
-  // Init speech recognition
   useEffect(() => {
     if (!SR) return;
     const r = new SR();
@@ -72,7 +67,7 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
     r.onerror = (e: any) => {
       setListening(false);
       if (e?.error === 'not-allowed' || e?.error === 'service-not-allowed') {
-        toast.error("Mikrofonga ruxsat berilmagan. Brauzer sozlamalaridan ruxsat bering.");
+        toast.error("Mikrofonga ruxsat berilmagan.");
       } else if (e?.error === 'no-speech') {
         toast.error("Ovoz eshitilmadi, qaytadan urinib ko'ring");
       }
@@ -119,34 +114,19 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
     abortRef.current = new AbortController();
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("Avval tizimga kiring");
-        setLoading(false);
-        return;
-      }
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-yolboshchi`;
-      const resp = await fetch(url, {
+      const resp = await fetch('/api/ai-chat', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: next.map((m) => ({ role: m.role, content: m.content })) }),
         signal: abortRef.current.signal,
       });
 
-      if (resp.status === 401) {
-        toast.error("Sessiya tugagan, qayta kiring");
+      if (resp.status === 503) {
+        toast.error("AI xizmati sozlanmagan. Admin bilan bog'laning.");
         setLoading(false); return;
       }
-
       if (resp.status === 429) {
         toast.error("So'rovlar ko'p — 1 daqiqadan keyin urinib ko'ring.");
-        setLoading(false); return;
-      }
-      if (resp.status === 402) {
-        toast.error("AI kreditlar tugagan. Admin bilan bog'laning yoki keyinroq urinib ko'ring.");
         setLoading(false); return;
       }
       if (!resp.ok || !resp.body) throw new Error('Stream failed');
@@ -181,15 +161,13 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
           if (line.endsWith('\r')) line = line.slice(0, -1);
           if (!line.startsWith('data: ')) continue;
           const j = line.slice(6).trim();
-          if (j === '[DONE]') { done = true; break; }
+          if (!j) continue;
           try {
             const p = JSON.parse(j);
-            const c = p.choices?.[0]?.delta?.content;
-            if (c) upsert(c);
-          } catch {
-            buf = line + '\n' + buf;
-            break;
-          }
+            if (p.done) { done = true; break; }
+            if (p.error) { toast.error(p.error); done = true; break; }
+            if (p.content) upsert(p.content);
+          } catch {}
         }
       }
       if (acc) speak(acc);
@@ -212,7 +190,6 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
 
   return (
     <div className={containerCls}>
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gold/20 bg-gradient-to-r from-gold/10 to-transparent">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-gold to-gold-deep flex items-center justify-center shadow-gold">
@@ -241,7 +218,6 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
         </div>
       </div>
 
-      {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -265,7 +241,6 @@ export const AiGuide = ({ variant = 'page', onClose }: Props) => {
         )}
       </div>
 
-      {/* Input */}
       <div className="border-t border-gold/20 p-3 bg-background/50">
         <div className="flex items-end gap-2">
           <Button
