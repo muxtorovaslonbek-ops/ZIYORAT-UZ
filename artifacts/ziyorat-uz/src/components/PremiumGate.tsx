@@ -1,5 +1,4 @@
 import { useEffect, useState, ReactNode, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Crown, Lock, Send, Loader2, CheckCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -12,15 +11,19 @@ type PremiumStatus = {
 };
 
 export const usePremium = () => {
-  const { session } = useAuth();
+  const { authToken } = useAuth();
   const [status, setStatus] = useState<PremiumStatus>({ premium: false, requestStatus: null });
   const [loading, setLoading] = useState(true);
 
   const check = useCallback(async () => {
-    if (!session?.access_token) { setStatus({ premium: false, requestStatus: null }); setLoading(false); return; }
+    if (!authToken) {
+      setStatus({ premium: false, requestStatus: null });
+      setLoading(false);
+      return;
+    }
     try {
       const res = await fetch('/api/premium/status', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${authToken}` },
       });
       const data = await res.json();
       setStatus({ premium: data.premium ?? false, requestStatus: data.requestStatus ?? null });
@@ -29,7 +32,7 @@ export const usePremium = () => {
     } finally {
       setLoading(false);
     }
-  }, [session?.access_token]);
+  }, [authToken]);
 
   useEffect(() => { check(); }, [check]);
   return { ...status, loading, refresh: check };
@@ -37,29 +40,24 @@ export const usePremium = () => {
 
 // ── PremiumGate ────────────────────────────────────────────────────────────
 export const PremiumGate = ({ featureName, children }: { featureName: string; children: ReactNode }) => {
-  const { user, session } = useAuth();
+  const { user, authToken } = useAuth();
   const { premium, requestStatus, loading, refresh } = usePremium();
   const [requesting, setRequesting] = useState(false);
-  const [requested, setRequested] = useState(false);
 
   const requestAccess = async () => {
-    if (!session?.access_token) return;
+    if (!authToken) return;
     setRequesting(true);
     try {
       const res = await fetch('/api/premium/request', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({
-          user_name: user?.user_metadata?.full_name || '',
-          telegram_username: user?.user_metadata?.telegram_username || '',
+          user_name: (user as any)?.user_metadata?.full_name || (user as any)?.full_name || '',
+          telegram_username: (user as any)?.user_metadata?.telegram_username || (user as any)?.telegram_username || '',
         }),
       });
       const data = await res.json();
       if (data.ok) {
-        setRequested(true);
         toast.success("So'rov yuborildi! Admin tez orada ko'rib chiqadi.");
         refresh();
       } else {
@@ -88,7 +86,7 @@ export const PremiumGate = ({ featureName, children }: { featureName: string; ch
           <Lock className="w-8 h-8 text-gold" />
         </div>
         <div>
-          <h2 className="font-display text-xl text-foreground mb-2">Kirish kerak</h2>
+          <h2 className="font-display text-xl mb-2">Kirish kerak</h2>
           <p className="text-sm text-muted-foreground">
             <span className="text-gold font-medium">{featureName}</span> bo'limidan foydalanish uchun tizimga kiring.
           </p>
@@ -100,8 +98,7 @@ export const PremiumGate = ({ featureName, children }: { featureName: string; ch
     </div>
   );
 
-  // Logged in but no premium
-  const isPending = requestStatus === 'pending' || requested;
+  const isPending = requestStatus === 'pending';
   const isRejected = requestStatus === 'rejected';
 
   return (
@@ -111,7 +108,7 @@ export const PremiumGate = ({ featureName, children }: { featureName: string; ch
           <Crown className="w-8 h-8 text-gold" />
         </div>
         <div>
-          <h2 className="font-display text-xl text-foreground mb-2">Premium bo'lim</h2>
+          <h2 className="font-display text-xl mb-2">Premium bo'lim</h2>
           <p className="text-sm text-muted-foreground mb-1">
             <span className="text-gold font-medium">{featureName}</span> faqat premium foydalanuvchilar uchun.
           </p>
