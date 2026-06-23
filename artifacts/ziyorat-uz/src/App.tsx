@@ -76,7 +76,7 @@ const App = () => (
                 <Route path="/tarixiy-liboslar" element={<TarixiyLiboslar />} />
                 <Route path="/premium" element={<Premium />} />
                 <Route path="/milliy-market" element={<MilliyMarket />} />
-                <Route path="/admin" element={<ProtectedRoute><Admin /></ProtectedRoute>} />
+                <Route path="/admin" element={<Admin />} />
                 <Route path="/admin/payments" element={<ProtectedRoute><AdminPayments /></ProtectedRoute>} />
                 <Route path="/admin/applications" element={<ProtectedRoute><AdminApplications /></ProtectedRoute>} />
                 <Route path="*" element={<NotFound />} />
