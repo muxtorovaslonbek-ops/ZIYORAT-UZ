@@ -13,6 +13,25 @@ const AuthContext = createContext<AuthContextValue>({
   user: null, session: null, loading: true, signOut: async () => {},
 });
 
+const syncProfile = async (session: Session) => {
+  try {
+    await fetch('/api/profile/sync', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        full_name: session.user.user_metadata?.full_name || '',
+        telegram_id: session.user.user_metadata?.telegram_id || null,
+        telegram_username: session.user.user_metadata?.telegram_username || null,
+      }),
+    });
+  } catch {
+    // silent — non-critical
+  }
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -23,12 +42,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
       setLoading(false);
+      if (newSession) syncProfile(newSession);
     });
 
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
       setLoading(false);
+      if (s) syncProfile(s);
     });
 
     return () => subscription.unsubscribe();

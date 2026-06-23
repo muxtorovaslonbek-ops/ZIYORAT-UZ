@@ -32,12 +32,9 @@ const Auth = () => {
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Telegram flow state
   const [tgCode, setTgCode] = useState('');
-  const [tgInfo, setTgInfo] = useState<TelegramInfo | null>(null);
   const [tgVerifying, setTgVerifying] = useState(false);
-  const [tgEmail, setTgEmail] = useState('');
-  const [tgPassword, setTgPassword] = useState('');
+  const [tgDone, setTgDone] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -45,91 +42,100 @@ const Auth = () => {
   const submitEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    if (tab === 'signup') {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: { full_name: fullName },
-        },
-      });
-      if (error) {
-        toast.error(error.message);
-      } else if (data.session) {
-        toast.success("Roʻyxatdan oʻtdingiz!");
-        navigate('/');
+    try {
+      if (tab === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { data: { full_name: fullName } },
+        });
+        if (error) { toast.error(error.message); return; }
+        if (data.session) {
+          toast.success("Ro'yxatdan o'tdingiz!");
+          navigate('/profile');
+        } else {
+          // Try sign in directly (email confirmation may be disabled)
+          const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
+          if (signInErr) {
+            toast.success("Ro'yxatdan o'tdingiz! Emailingizni tasdiqlang.");
+          } else {
+            toast.success('Xush kelibsiz!');
+            navigate('/profile');
+          }
+        }
       } else {
-        const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-        if (signInErr) toast.error(signInErr.message);
-        else { toast.success('Xush kelibsiz!'); navigate('/'); }
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+          const msg = error.message.toLowerCase().includes('email not confirmed')
+            ? 'Email hali tasdiqlanmagan.'
+            : error.message.toLowerCase().includes('invalid login')
+            ? "Email yoki parol noto'g'ri."
+            : error.message;
+          toast.error(msg);
+        } else {
+          toast.success('Xush kelibsiz!');
+          navigate('/profile');
+        }
       }
-    } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        const msg = error.message.toLowerCase().includes('email not confirmed')
-          ? 'Email hali tasdiqlanmagan.'
-          : error.message.toLowerCase().includes('invalid login')
-          ? 'Email yoki parol notoʻgʻri.'
-          : error.message;
-        toast.error(msg);
-      } else { toast.success('Xush kelibsiz!'); navigate('/'); }
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
-  // ── Telegram: verify code ────────────────────────────────────────────────
+  // ── Telegram: verify code → auto login (no email needed) ─────────────────
   const verifyTgCode = async () => {
     const code = tgCode.trim();
-    if (code.length !== 6) { toast.error("6 xonali kod kiriting"); return; }
+    if (code.length !== 6) { toast.error('6 xonali kod kiriting'); return; }
     setTgVerifying(true);
     try {
       const res = await fetch(`/api/telegram/verify-code/${code}`);
       const json = await res.json();
-      if (!json.ok) { toast.error(json.error || "Kod topilmadi"); return; }
-      setTgInfo(json.data);
-      const name = [json.data.first_name, json.data.last_name].filter(Boolean).join(' ');
-      toast.success(`Telegram tasdiqlandi: ${name}`);
-    } catch {
-      toast.error("Ulanish xatosi");
-    } finally {
-      setTgVerifying(false);
-    }
-  };
+      if (!json.ok) { toast.error(json.error || 'Kod topilmadi'); return; }
+      const info: TelegramInfo = json.data;
 
-  // ── Telegram: complete registration ─────────────────────────────────────
-  const submitTelegram = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tgInfo) return;
-    setLoading(true);
-    try {
-      const fullNameFromTg = [tgInfo.first_name, tgInfo.last_name].filter(Boolean).join(' ');
+      // Auto-generate internal Supabase credentials (user never sees these)
+      const internalEmail = `tg_${info.telegram_id}@ziyorat.app`;
+      const internalPassword = `ZRTG_${info.telegram_id}_2026!`;
+      const fullNameFromTg = [info.first_name, info.last_name].filter(Boolean).join(' ');
+
+      setLoading(true);
+      // Try sign up
       const { data, error } = await supabase.auth.signUp({
-        email: tgEmail,
-        password: tgPassword,
+        email: internalEmail,
+        password: internalPassword,
         options: {
-          emailRedirectTo: `${window.location.origin}/`,
           data: {
             full_name: fullNameFromTg,
-            telegram_id: String(tgInfo.telegram_id),
-            telegram_username: tgInfo.username || '',
+            telegram_id: String(info.telegram_id),
+            telegram_username: info.username || '',
           },
         },
       });
-      if (error) { toast.error(error.message); return; }
+
+      if (error && !error.message.toLowerCase().includes('already registered')) {
+        toast.error(error.message);
+        return;
+      }
+
+      // If already registered or no session, sign in
+      if (!data?.session) {
+        const { error: signInErr } = await supabase.auth.signInWithPassword({
+          email: internalEmail,
+          password: internalPassword,
+        });
+        if (signInErr) { toast.error(signInErr.message); return; }
+      }
 
       // Consume the code
-      fetch(`/api/telegram/verify-code/${tgCode.trim()}`, { method: 'DELETE' }).catch(() => {});
+      fetch(`/api/telegram/verify-code/${code}`, { method: 'DELETE' }).catch(() => {});
 
-      if (data.session) {
-        toast.success("Roʻyxatdan oʻtdingiz! Telegram hisobingiz ulandi.");
-        navigate('/');
-      } else {
-        const { error: signInErr } = await supabase.auth.signInWithPassword({ email: tgEmail, password: tgPassword });
-        if (signInErr) toast.error(signInErr.message);
-        else { toast.success("Xush kelibsiz!"); navigate('/'); }
-      }
+      setTgDone(true);
+      toast.success(`Xush kelibsiz, ${info.first_name}! 🎉`);
+      setTimeout(() => navigate('/profile'), 800);
+    } catch {
+      toast.error('Ulanish xatosi');
     } finally {
+      setTgVerifying(false);
       setLoading(false);
     }
   };
@@ -142,7 +148,7 @@ const Auth = () => {
 
   return (
     <div className="min-h-screen bg-background">
-      <Seo title="Kirish va roʻyxat — ZIYORAT UZ" description="ZIYORAT UZ tizimiga kirish yoki yangi hisob yarating." path="/auth" />
+      <Seo title="Kirish va ro'yxat — ZIYORAT UZ" description="ZIYORAT UZ tizimiga kirish yoki yangi hisob yarating." path="/auth" />
       <Navbar />
       <div className="container max-w-md py-16 animate-fade-in">
         <Card className="bg-card-gradient border-gold/30 p-8 shadow-elegant animate-scale-in">
@@ -171,7 +177,7 @@ const Auth = () => {
             ))}
           </div>
 
-          {/* ── Email sign-in ── */}
+          {/* ── Email sign-in / sign-up ── */}
           {(tab === 'signin' || tab === 'signup') && (
             <form onSubmit={submitEmail} className="space-y-4">
               {tab === 'signup' && (
@@ -182,11 +188,11 @@ const Auth = () => {
               )}
               <div>
                 <Label htmlFor="email">{t('auth.email')}</Label>
-                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="bg-input border-gold/30" />
+                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" className="bg-input border-gold/30" />
               </div>
               <div>
                 <Label htmlFor="password">{t('auth.password')}</Label>
-                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className="bg-input border-gold/30" />
+                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoComplete={tab === 'signin' ? 'current-password' : 'new-password'} className="bg-input border-gold/30" />
               </div>
               <Button type="submit" disabled={loading} className="w-full bg-gold hover:bg-gold-soft text-noir font-semibold">
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (tab === 'signin' ? t('auth.signIn') : t('auth.signUp'))}
@@ -194,95 +200,56 @@ const Auth = () => {
             </form>
           )}
 
-          {/* ── Telegram registration ── */}
+          {/* ── Telegram ── */}
           {tab === 'telegram' && (
             <div className="space-y-5">
-              {/* Step 1 */}
-              <div className={`rounded-xl border p-4 space-y-3 transition-all ${tgInfo ? 'border-green-500/40 bg-green-500/5' : 'border-gold/20 bg-secondary/40'}`}>
-                <div className="flex items-center gap-2">
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${tgInfo ? 'bg-green-500 text-white' : 'bg-gold text-noir'}`}>
-                    {tgInfo ? <CheckCircle className="w-4 h-4" /> : '1'}
-                  </span>
-                  <p className="text-sm font-medium">Telegram botdan kod oling</p>
+              {tgDone ? (
+                <div className="flex flex-col items-center gap-3 py-6">
+                  <CheckCircle className="w-14 h-14 text-green-500" />
+                  <p className="text-lg font-medium text-green-500">Muvaffaqiyatli kirdingiz!</p>
                 </div>
-                <a
-                  href="https://t.me/ziyorat_bot"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 w-full justify-center py-2 rounded-lg bg-[#229ED9] text-white text-sm font-medium hover:bg-[#1a8bc4] transition-colors"
-                >
-                  <Send className="w-4 h-4" />
-                  Telegram botni ochish
-                </a>
-                <p className="text-xs text-muted-foreground text-center">
-                  Botga /start yuboring — 6 xonali kod olasiz
-                </p>
-                {!tgInfo && (
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="000000"
-                      value={tgCode}
-                      onChange={(e) => setTgCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      maxLength={6}
-                      className="bg-input border-gold/30 text-center tracking-[0.4em] text-lg font-mono"
-                    />
-                    <Button
-                      onClick={verifyTgCode}
-                      disabled={tgVerifying || tgCode.length !== 6}
-                      className="bg-gold text-noir hover:bg-gold-soft shrink-0"
+              ) : (
+                <>
+                  <div className="rounded-xl border border-gold/20 bg-secondary/40 p-4 space-y-3">
+                    <p className="text-sm font-medium text-center">Telegram bot orqali kiring</p>
+                    <a
+                      href="https://t.me/ziyorat_bot"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-2 w-full justify-center py-2.5 rounded-lg bg-[#229ED9] text-white text-sm font-medium hover:bg-[#1a8bc4] transition-colors"
                     >
-                      {tgVerifying ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Tekshir'}
-                    </Button>
+                      <Send className="w-4 h-4" />
+                      @ziyorat_bot ga /start yuboring
+                    </a>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Bot sizga 6 xonali kod yuboradi
+                    </p>
                   </div>
-                )}
-                {tgInfo && (
-                  <div className="flex items-center gap-2 bg-green-500/10 rounded-lg px-3 py-2">
-                    <CheckCircle className="w-4 h-4 text-green-500 shrink-0" />
-                    <span className="text-sm text-green-600 dark:text-green-400 font-medium">
-                      {[tgInfo.first_name, tgInfo.last_name].filter(Boolean).join(' ')}
-                      {tgInfo.username && ` (@${tgInfo.username})`} — tasdiqlandi
-                    </span>
-                  </div>
-                )}
-              </div>
 
-              {/* Step 2 — shown after code verified */}
-              {tgInfo && (
-                <form onSubmit={submitTelegram} className="space-y-4">
-                  <div className={`rounded-xl border border-gold/20 bg-secondary/40 p-4 space-y-3`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="w-6 h-6 rounded-full bg-gold text-noir flex items-center justify-center text-xs font-bold">2</span>
-                      <p className="text-sm font-medium">Email va parol o'rnating</p>
-                    </div>
-                    <div>
-                      <Label htmlFor="tg-email">Email</Label>
+                  <div className="space-y-3">
+                    <Label className="text-sm">Botdan kelgan kodni kiriting</Label>
+                    <div className="flex gap-2">
                       <Input
-                        id="tg-email"
-                        type="email"
-                        value={tgEmail}
-                        onChange={(e) => setTgEmail(e.target.value)}
-                        required
-                        placeholder="email@example.com"
-                        className="bg-input border-gold/30"
+                        placeholder="000000"
+                        value={tgCode}
+                        onChange={(e) => setTgCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        maxLength={6}
+                        className="bg-input border-gold/30 text-center tracking-[0.4em] text-lg font-mono"
+                        onKeyDown={(e) => { if (e.key === 'Enter' && tgCode.length === 6) verifyTgCode(); }}
                       />
+                      <Button
+                        onClick={verifyTgCode}
+                        disabled={tgVerifying || loading || tgCode.length !== 6}
+                        className="bg-gold text-noir hover:bg-gold-soft shrink-0 min-w-[90px]"
+                      >
+                        {tgVerifying || loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Kirish'}
+                      </Button>
                     </div>
-                    <div>
-                      <Label htmlFor="tg-password">Parol (kamida 6 ta belgi)</Label>
-                      <Input
-                        id="tg-password"
-                        type="password"
-                        value={tgPassword}
-                        onChange={(e) => setTgPassword(e.target.value)}
-                        required
-                        minLength={6}
-                        className="bg-input border-gold/30"
-                      />
-                    </div>
-                    <Button type="submit" disabled={loading} className="w-full bg-gold hover:bg-gold-soft text-noir font-semibold">
-                      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Ro'yxatdan o'tish"}
-                    </Button>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Email yoki parol kerak emas — faqat Telegram kodi
+                    </p>
                   </div>
-                </form>
+                </>
               )}
             </div>
           )}
