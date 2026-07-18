@@ -117,19 +117,6 @@ export const Navbar = () => {
                   <span className="text-sm font-medium">{l.label}</span>
                 </NavLink>
               ))}
-              <NavLink
-                to="/admin"
-                end
-                onClick={() => setOpen(false)}
-                className={({ isActive }) =>
-                  `flex items-center gap-3 px-4 py-3 rounded-md transition-smooth border-t border-gold/10 mt-2 pt-3 ${
-                    isActive ? 'bg-gold/10 text-gold' : 'text-gold/70 hover:bg-gold/10 hover:text-gold'
-                  }`
-                }
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span className="text-sm font-medium">Admin Panel</span>
-              </NavLink>
               {user ? (
                 <>
                   <NavLink
