@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ThemeProvider } from "@/hooks/useTheme";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
+import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { lazy, Suspense } from "react";
 import "@/lib/i18n";
 
@@ -57,6 +59,7 @@ const App = () => (
         <Sonner position="top-center" />
         <BrowserRouter>
           <AuthProvider>
+            <AnnouncementBanner />
             <Suspense fallback={<PageFallback />}>
               <Routes>
                 <Route path="/" element={<Index />} />
@@ -85,6 +88,7 @@ const App = () => (
             <Suspense fallback={null}>
               <AiGuideFloating />
             </Suspense>
+            <PwaInstallPrompt />
           </AuthProvider>
         </BrowserRouter>
       </TooltipProvider>

@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { pool } from '@workspace/db';
 import { randomBytes } from 'crypto';
+import jwt from 'jsonwebtoken';
 
 const router = Router();
 
 const ADMIN_USERNAME = 'aslonbek0722';
 const ADMIN_PASSWORD = 'aziza0722';
+const SESSION_SECRET = process.env.SESSION_SECRET || 'ziyorat_secret_2024';
 
 // ── DB setup ──────────────────────────────────────────────────────────────
 const initDb = async () => {
@@ -58,6 +60,7 @@ const initDb = async () => {
       title TEXT NOT NULL,
       message TEXT NOT NULL,
       target TEXT DEFAULT 'all',
+      icon TEXT DEFAULT 'bell',
       sent_at TIMESTAMPTZ DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS admin_messages (
@@ -87,13 +90,43 @@ const initDb = async () => {
       created_at TIMESTAMPTZ DEFAULT now(),
       reviewed_at TIMESTAMPTZ
     );
+    CREATE TABLE IF NOT EXISTS site_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS user_activity (
+      id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+      user_id TEXT,
+      user_name TEXT,
+      action TEXT NOT NULL,
+      meta TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    );
   `);
-  // Add is_blocked column if it doesn't exist (migration)
   await pool.query(`
     ALTER TABLE user_registry ADD COLUMN IF NOT EXISTS is_blocked BOOLEAN DEFAULT false;
+    ALTER TABLE notifications ADD COLUMN IF NOT EXISTS icon TEXT DEFAULT 'bell';
   `).catch(() => {});
 };
 initDb().catch(console.error);
+
+// ── Helper: get current user from Authorization header (Supabase or TG JWT) ─
+const getUserFromToken = (authHeader: string | undefined): { userId: string; isPremium?: boolean; isTelegram?: boolean } | null => {
+  if (!authHeader) return null;
+  const token = authHeader.replace('Bearer ', '');
+  // Try TG JWT first
+  try {
+    const payload = jwt.verify(token, SESSION_SECRET) as any;
+    if (payload.telegram_id) return { userId: String(payload.telegram_id), isTelegram: true };
+  } catch {}
+  // Try Supabase JWT (just decode, don't verify — we trust the client)
+  try {
+    const payload = jwt.decode(token) as any;
+    if (payload?.sub) return { userId: payload.sub, isTelegram: false };
+  } catch {}
+  return null;
+};
 
 // ── Admin token middleware ─────────────────────────────────────────────────
 export const requireAdmin = async (req: any, res: any, next: any) => {
@@ -232,6 +265,12 @@ router.delete('/admin/products/:id', requireAdmin, async (req: any, res: any) =>
   res.json({ ok: true });
 });
 
+// Public: get active products for Milliy Market
+router.get('/products', async (_req: any, res: any) => {
+  const { rows } = await pool.query('SELECT * FROM market_products WHERE is_active=true ORDER BY created_at DESC');
+  res.json({ ok: true, products: rows });
+});
+
 // ── Notifications ──────────────────────────────────────────────────────────
 router.get('/admin/notifications', requireAdmin, async (_req: any, res: any) => {
   const { rows } = await pool.query('SELECT * FROM notifications ORDER BY sent_at DESC LIMIT 100');
@@ -239,13 +278,56 @@ router.get('/admin/notifications', requireAdmin, async (_req: any, res: any) => 
 });
 
 router.post('/admin/notifications/send', requireAdmin, async (req: any, res: any) => {
-  const { title, message, target } = req.body;
+  const { title, message, target, icon } = req.body;
   if (!title || !message) return res.status(400).json({ ok: false, error: 'Sarlavha va xabar kerak' });
   const { rows } = await pool.query(
-    'INSERT INTO notifications (title, message, target) VALUES ($1,$2,$3) RETURNING *',
-    [title, message, target || 'all']
+    'INSERT INTO notifications (title, message, target, icon) VALUES ($1,$2,$3,$4) RETURNING *',
+    [title, message, target || 'all', icon || 'bell']
   );
   res.json({ ok: true, notification: rows[0] });
+});
+
+router.delete('/admin/notifications/:id', requireAdmin, async (req: any, res: any) => {
+  await pool.query('DELETE FROM notifications WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// ── Public: user inbox (notifications + personal messages) ─────────────────
+// Returns notifications relevant to this user and personal admin messages
+router.get('/user/inbox', async (req: any, res: any) => {
+  const authHeader = req.headers.authorization;
+  const userInfo = getUserFromToken(authHeader);
+
+  // Build notification targets
+  const targets = ['all'];
+  let isPremium = false;
+  if (userInfo) {
+    if (userInfo.isTelegram) targets.push('telegram');
+    // Check premium
+    const { rows: pg } = await pool.query(
+      'SELECT user_id FROM premium_grants WHERE user_id=$1', [userInfo.userId]
+    );
+    if (pg.length) { isPremium = true; targets.push('premium'); }
+  }
+
+  const placeholders = targets.map((_, i) => `$${i + 1}`).join(',');
+  const { rows: notifs } = await pool.query(
+    `SELECT * FROM notifications WHERE target IN (${placeholders}) ORDER BY sent_at DESC LIMIT 30`,
+    targets
+  );
+
+  // Personal messages
+  let messages: any[] = [];
+  if (userInfo) {
+    const { rows: msgs } = await pool.query(
+      `SELECT id, subject, message, admin_reply, sent_at, replied_at FROM admin_messages
+       WHERE to_user_id=$1 ORDER BY sent_at DESC LIMIT 20`,
+      [userInfo.userId]
+    );
+    messages = msgs;
+  }
+
+  res.json({ ok: true, notifications: notifs, messages, isPremium });
 });
 
 // ── Admin Messages ─────────────────────────────────────────────────────────
@@ -303,6 +385,69 @@ router.post('/admin/contracts/:id/reply', requireAdmin, async (req: any, res: an
   res.json({ ok: true });
 });
 
+// ── Activity Log ───────────────────────────────────────────────────────────
+router.get('/admin/activity', requireAdmin, async (_req: any, res: any) => {
+  // Aggregate recent activity from multiple tables
+  const { rows: registrations } = await pool.query(
+    `SELECT user_id, full_name as user_name, 'register' as action,
+     registered_at as created_at, email as meta
+     FROM user_registry ORDER BY registered_at DESC LIMIT 10`
+  );
+  const { rows: premiums } = await pool.query(
+    `SELECT pg.user_id, ur.full_name as user_name, 'premium_grant' as action,
+     pg.granted_at as created_at, pg.granted_by as meta
+     FROM premium_grants pg
+     LEFT JOIN user_registry ur ON pg.user_id = ur.user_id
+     ORDER BY pg.granted_at DESC LIMIT 10`
+  );
+  const { rows: contracts } = await pool.query(
+    `SELECT id as user_id, full_name as user_name, 'contract' as action,
+     created_at, applicant_type as meta
+     FROM contract_applications ORDER BY created_at DESC LIMIT 10`
+  );
+  const { rows: premReqs } = await pool.query(
+    `SELECT user_id, user_name, 'premium_request' as action,
+     requested_at as created_at, status as meta
+     FROM premium_requests ORDER BY requested_at DESC LIMIT 10`
+  );
+
+  // Merge and sort
+  const all = [...registrations, ...premiums, ...contracts, ...premReqs]
+    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 40);
+
+  res.json({ ok: true, activity: all });
+});
+
+// ── Site Settings ──────────────────────────────────────────────────────────
+router.get('/admin/settings', requireAdmin, async (_req: any, res: any) => {
+  const { rows } = await pool.query('SELECT key, value FROM site_settings');
+  const settings: Record<string, string> = {};
+  rows.forEach((r: any) => { settings[r.key] = r.value; });
+  res.json({ ok: true, settings });
+});
+
+router.post('/admin/settings', requireAdmin, async (req: any, res: any) => {
+  const { key, value } = req.body;
+  if (!key) return res.status(400).json({ ok: false, error: 'Key kerak' });
+  await pool.query(
+    `INSERT INTO site_settings (key, value) VALUES ($1,$2)
+     ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=now()`,
+    [key, value ?? '']
+  );
+  res.json({ ok: true });
+});
+
+// Public: get site settings (announcement, maintenance)
+router.get('/settings/public', async (_req: any, res: any) => {
+  const { rows } = await pool.query(
+    `SELECT key, value FROM site_settings WHERE key IN ('announcement','maintenance_mode','announcement_type')`
+  );
+  const settings: Record<string, string> = {};
+  rows.forEach((r: any) => { settings[r.key] = r.value; });
+  res.json({ ok: true, settings });
+});
+
 // Public: submit contract (for Partnership page)
 router.post('/contracts/submit', async (req: any, res: any) => {
   const { applicant_type, full_name, organization_name, phone, email, region, address, certificate_number, message } = req.body;
@@ -325,6 +470,17 @@ router.get('/contracts/:id/status', async (req: any, res: any) => {
   );
   if (!rows.length) return res.status(404).json({ ok: false, error: "Topilmadi" });
   res.json({ ok: true, contract: rows[0] });
+});
+
+// Public: log user activity
+router.post('/user/activity', async (req: any, res: any) => {
+  const { user_id, user_name, action, meta } = req.body;
+  if (!action) return res.status(400).json({ ok: false });
+  await pool.query(
+    'INSERT INTO user_activity (user_id, user_name, action, meta) VALUES ($1,$2,$3,$4)',
+    [user_id || null, user_name || null, action, meta || null]
+  ).catch(() => {});
+  res.json({ ok: true });
 });
 
 export default router;

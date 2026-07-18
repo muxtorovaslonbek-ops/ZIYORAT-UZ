@@ -12,8 +12,9 @@ import {
   Shield, Users, Crown, Clock, Check, X, Loader2, RefreshCw,
   Send, LogOut, BarChart3, Search, ChevronDown, Eye, EyeOff,
   Package, Bell, MessageSquare, FileText, Trash2, Ban, UserCheck,
-  Plus, Edit2, Star, MapPin, Tag, Image as ImageIcon, ChevronUp,
-  AlertCircle, CheckCircle2, XCircle, Inbox, Reply,
+  Plus, Star, MapPin, ChevronUp,
+  Inbox, Reply, Activity, Settings, Gift, Info, AlertTriangle,
+  Megaphone, ToggleLeft, ToggleRight, UserPlus, TrendingUp,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -38,7 +39,15 @@ type Product = {
   created_at: string;
 };
 type Notification = {
-  id: string; title: string; message: string; target: string; sent_at: string;
+  id: string; title: string; message: string; target: string; icon?: string; sent_at: string;
+};
+type ActivityItem = {
+  user_id: string; user_name: string | null; action: string; meta: string | null; created_at: string;
+};
+type SiteSettings = {
+  announcement?: string;
+  announcement_type?: string;
+  maintenance_mode?: string;
 };
 type AdminMessage = {
   id: string; to_user_id: string | null; to_user_name: string | null;
@@ -175,6 +184,8 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
   const [messages, setMessages] = useState<AdminMessage[]>([]);
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [settings, setSettings] = useState<SiteSettings>({});
   const [acting, setActing] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -186,7 +197,7 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
   const [savingProduct, setSavingProduct] = useState(false);
 
   // Notification form
-  const [notifForm, setNotifForm] = useState({ title: '', message: '', target: 'all' });
+  const [notifForm, setNotifForm] = useState({ title: '', message: '', target: 'all', icon: 'bell' });
   const [sendingNotif, setSendingNotif] = useState(false);
 
   // Message form
@@ -208,13 +219,15 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [ud, rd, pd, nd, md, cd] = await Promise.all([
+      const [ud, rd, pd, nd, md, cd, ad, sd] = await Promise.all([
         api('/admin/users', 'GET', undefined, token),
         api('/admin/requests', 'GET', undefined, token),
         api('/admin/products', 'GET', undefined, token),
         api('/admin/notifications', 'GET', undefined, token),
         api('/admin/messages', 'GET', undefined, token),
         api('/admin/contracts', 'GET', undefined, token),
+        api('/admin/activity', 'GET', undefined, token),
+        api('/admin/settings', 'GET', undefined, token),
       ]);
       if (ud.ok) setUsers(ud.users || []);
       if (rd.ok) setRequests(rd.requests || []);
@@ -222,6 +235,8 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
       if (nd.ok) setNotifications(nd.notifications || []);
       if (md.ok) setMessages(md.messages || []);
       if (cd.ok) setContracts(cd.contracts || []);
+      if (ad.ok) setActivity(ad.activity || []);
+      if (sd.ok) setSettings(sd.settings || {});
     } catch { toast.error("Ma'lumot yuklanmadi"); }
     finally { setLoading(false); }
   }, [token]);
@@ -291,9 +306,26 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
     if (!notifForm.title || !notifForm.message) return toast.error('Sarlavha va xabar kerak');
     setSendingNotif(true);
     const d = await api('/admin/notifications/send', 'POST', notifForm, token);
-    if (d.ok) { toast.success('Bildirishnoma yuborildi ✓'); setNotifForm({ title: '', message: '', target: 'all' }); load(); }
+    if (d.ok) { toast.success('Bildirishnoma yuborildi ✓'); setNotifForm({ title: '', message: '', target: 'all', icon: 'bell' }); load(); }
     else toast.error(d.error || 'Xato');
     setSendingNotif(false);
+  };
+
+  const deleteNotification = async (id: string) => {
+    if (!confirm("Bildirishnomani o'chirish?")) return;
+    const d = await api(`/admin/notifications/${id}`, 'DELETE', undefined, token);
+    if (d.ok) { toast.success("O'chirildi"); load(); }
+  };
+
+  const [savingSettings, setSavingSettings] = useState(false);
+  const [settingsForm, setSettingsForm] = useState<SiteSettings>({});
+
+  const saveSetting = async (key: string, value: string) => {
+    setSavingSettings(true);
+    const d = await api('/admin/settings', 'POST', { key, value }, token);
+    if (d.ok) { toast.success('Saqlandi ✓'); load(); }
+    else toast.error('Xato');
+    setSavingSettings(false);
   };
 
   const sendMessage = async (e: React.FormEvent) => {
@@ -351,6 +383,8 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
     { value: 'contracts',icon: FileText,       label: 'Shartnomalar', badge: newContracts.length || undefined, badgeColor: 'bg-blue-500' },
     { value: 'requests', icon: Clock,          label: "So'rovlar", badge: pendingRequests.length || undefined, badgeColor: 'bg-amber-500' },
     { value: 'premium',  icon: Crown,          label: 'Premium', badge: premiumUsers.length },
+    { value: 'activity', icon: Activity,       label: 'Faoliyat' },
+    { value: 'settings', icon: Settings,       label: 'Sozlamalar' },
   ];
 
   return (
@@ -624,24 +658,39 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
               <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Bell className="w-4 h-4 text-gold" />Yangi bildirishnoma yuborish</CardTitle></CardHeader>
               <CardContent>
                 <form onSubmit={sendNotification} className="space-y-3">
-                  <div>
-                    <Label className="text-xs">Sarlavha</Label>
-                    <Input value={notifForm.title} onChange={(e) => setNotifForm((p) => ({ ...p, title: e.target.value }))}
-                      placeholder="Bildirishnoma sarlavhasi" className="bg-input border-gold/30 mt-1" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Xabar matni</Label>
-                    <Textarea value={notifForm.message} onChange={(e) => setNotifForm((p) => ({ ...p, message: e.target.value }))}
-                      placeholder="Xabar mazmuni..." className="bg-input border-gold/30 mt-1 min-h-[80px]" />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Kimga</Label>
-                    <select value={notifForm.target} onChange={(e) => setNotifForm((p) => ({ ...p, target: e.target.value }))}
-                      className="w-full mt-1 h-9 rounded-md border border-gold/30 bg-input px-3 text-sm">
-                      <option value="all">Barcha foydalanuvchilar</option>
-                      <option value="premium">Faqat premium</option>
-                      <option value="telegram">Telegram foydalanuvchilari</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <Label className="text-xs">Sarlavha</Label>
+                      <Input value={notifForm.title} onChange={(e) => setNotifForm((p) => ({ ...p, title: e.target.value }))}
+                        placeholder="Bildirishnoma sarlavhasi" className="bg-input border-gold/30 mt-1" />
+                    </div>
+                    <div className="col-span-2">
+                      <Label className="text-xs">Xabar matni</Label>
+                      <Textarea value={notifForm.message} onChange={(e) => setNotifForm((p) => ({ ...p, message: e.target.value }))}
+                        placeholder="Xabar mazmuni..." className="bg-input border-gold/30 mt-1 min-h-[80px]" />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Kimga</Label>
+                      <select value={notifForm.target} onChange={(e) => setNotifForm((p) => ({ ...p, target: e.target.value }))}
+                        className="w-full mt-1 h-9 rounded-md border border-gold/30 bg-input px-3 text-sm">
+                        <option value="all">Barcha foydalanuvchilar</option>
+                        <option value="premium">Faqat premium</option>
+                        <option value="telegram">Telegram foydalanuvchilari</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Ikonka</Label>
+                      <select value={notifForm.icon} onChange={(e) => setNotifForm((p) => ({ ...p, icon: e.target.value }))}
+                        className="w-full mt-1 h-9 rounded-md border border-gold/30 bg-input px-3 text-sm">
+                        <option value="bell">🔔 Bildirishnoma</option>
+                        <option value="star">⭐ Yangilik</option>
+                        <option value="crown">👑 Premium</option>
+                        <option value="gift">🎁 Sovg'a</option>
+                        <option value="info">ℹ️ Ma'lumot</option>
+                        <option value="check">✅ Tasdiqlandi</option>
+                        <option value="warning">⚠️ Ogohlantirish</option>
+                      </select>
+                    </div>
                   </div>
                   <Button type="submit" size="sm" className="bg-gold hover:bg-gold/90 text-black gap-1.5" disabled={sendingNotif}>
                     {sendingNotif ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Send className="w-4 h-4" />Yuborish</>}
@@ -656,21 +705,28 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
                 <p className="text-center text-muted-foreground py-8 text-sm">Hali yuborilmagan</p>
               ) : (
                 <div className="space-y-2">
-                  {notifications.map((n) => (
-                    <Card key={n.id} className="border-gold/20 bg-card">
-                      <CardContent className="p-4 flex items-start gap-3">
-                        <Bell className="w-4 h-4 text-gold shrink-0 mt-0.5" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <p className="font-medium text-sm">{n.title}</p>
-                            <Badge variant="outline" className="text-[10px]">{n.target === 'all' ? 'Barchaga' : n.target === 'premium' ? 'Premium' : 'Telegram'}</Badge>
+                  {notifications.map((n) => {
+                    const icons: Record<string, string> = { bell:'🔔', star:'⭐', crown:'👑', gift:'🎁', info:'ℹ️', check:'✅', warning:'⚠️' };
+                    return (
+                      <Card key={n.id} className="border-gold/20 bg-card">
+                        <CardContent className="p-4 flex items-start gap-3">
+                          <span className="text-lg shrink-0 mt-0.5 leading-none">{icons[n.icon || 'bell'] || '🔔'}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <p className="font-medium text-sm">{n.title}</p>
+                              <Badge variant="outline" className="text-[10px]">{n.target === 'all' ? 'Barchaga' : n.target === 'premium' ? 'Premium' : 'Telegram'}</Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground">{n.message}</p>
+                            <p className="text-[11px] text-muted-foreground/60 mt-1">{fmt(n.sent_at)}</p>
                           </div>
-                          <p className="text-xs text-muted-foreground">{n.message}</p>
-                          <p className="text-[11px] text-muted-foreground/60 mt-1">{fmt(n.sent_at)}</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:bg-destructive/10 shrink-0"
+                            onClick={() => deleteNotification(n.id)}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -896,6 +952,125 @@ const Dashboard = ({ token, onLogout }: { token: string; onLogout: () => void })
                 </Card>
               ))
             )}
+          </TabsContent>
+
+          {/* ── ACTIVITY LOG ── */}
+          <TabsContent value="activity" className="space-y-3">
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="font-medium">Oxirgi faoliyat</h2>
+              <Button size="sm" variant="outline" className="gap-1.5 border-gold/30 h-8 text-xs" onClick={load} disabled={loading}>
+                <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />Yangilash
+              </Button>
+            </div>
+            {loading ? (
+              <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-gold" /></div>
+            ) : activity.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground"><Activity className="w-10 h-10 mx-auto mb-3 opacity-30" /><p className="text-sm">Faoliyat yo'q</p></div>
+            ) : (
+              <div className="space-y-1.5">
+                {activity.map((item, i) => {
+                  const actionConfig: Record<string, { label: string; icon: any; color: string }> = {
+                    register:       { label: "Ro'yxatdan o'tdi", icon: UserPlus,     color: 'text-blue-400 bg-blue-500/10' },
+                    premium_grant:  { label: 'Premium berildi',  icon: Crown,        color: 'text-gold bg-gold/10' },
+                    premium_request:{ label: "Premium so'radi",  icon: TrendingUp,   color: 'text-amber-400 bg-amber-500/10' },
+                    contract:       { label: 'Shartnoma berdi',  icon: FileText,     color: 'text-purple-400 bg-purple-500/10' },
+                  };
+                  const cfg = actionConfig[item.action] || { label: item.action, icon: Activity, color: 'text-muted-foreground bg-secondary' };
+                  const Icon = cfg.icon;
+                  return (
+                    <div key={`${item.user_id}-${i}`} className="flex items-center gap-3 p-3 rounded-lg border border-gold/10 bg-card hover:bg-secondary/30 transition-colors">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${cfg.color}`}>
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-sm truncate">{item.user_name || 'Foydalanuvchi'}</p>
+                          <Badge variant="outline" className="text-[10px] shrink-0">{cfg.label}</Badge>
+                        </div>
+                        {item.meta && <p className="text-xs text-muted-foreground truncate">{item.meta}</p>}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground/60 shrink-0">{fmt(item.created_at)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* ── SETTINGS ── */}
+          <TabsContent value="settings" className="space-y-4">
+            {/* Announcement */}
+            <Card className="border-gold/30 bg-card">
+              <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Megaphone className="w-4 h-4 text-gold" />Sayt e'loni (Banner)</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-xs text-muted-foreground">E'lon matni barcha foydalanuvchilarga sayt yuqorisida ko'rinadi. Bo'sh qoldirsangiz, banner yashiriladi.</p>
+                <div>
+                  <Label className="text-xs">E'lon matni</Label>
+                  <Textarea
+                    defaultValue={settings.announcement || ''}
+                    onChange={(e) => setSettingsForm((p) => ({ ...p, announcement: e.target.value }))}
+                    placeholder="Yangi imkoniyat! Premium abonentlar uchun 3D sayohat yangilandi..."
+                    className="bg-input border-gold/30 mt-1 min-h-[70px] text-sm"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Tur</Label>
+                  <select
+                    defaultValue={settings.announcement_type || 'info'}
+                    onChange={(e) => setSettingsForm((p) => ({ ...p, announcement_type: e.target.value }))}
+                    className="w-full mt-1 h-9 rounded-md border border-gold/30 bg-input px-3 text-sm"
+                  >
+                    <option value="info">ℹ️ Ma'lumot (moviy)</option>
+                    <option value="success">✅ Muvaffaqiyat (yashil)</option>
+                    <option value="warning">⚠️ Ogohlantirish (sariq)</option>
+                    <option value="gold">👑 Premium (oltin)</option>
+                  </select>
+                </div>
+                <Button size="sm" className="bg-gold hover:bg-gold/90 text-black gap-1.5" disabled={savingSettings}
+                  onClick={async () => {
+                    await saveSetting('announcement', settingsForm.announcement ?? settings.announcement ?? '');
+                    await saveSetting('announcement_type', settingsForm.announcement_type ?? settings.announcement_type ?? 'info');
+                  }}>
+                  {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Check className="w-4 h-4" />Saqlash</>}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Maintenance mode */}
+            <Card className="border-gold/30 bg-card">
+              <CardHeader><CardTitle className="text-sm flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-amber-400" />Texnik xizmat rejimi</CardTitle></CardHeader>
+              <CardContent className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium">Maintenance Mode</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Yoqilsa, saytga kirishda xabar ko'rinadi</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={`gap-1.5 ${settings.maintenance_mode === 'true' ? 'border-destructive/50 text-destructive' : 'border-green-500/50 text-green-400'}`}
+                  onClick={() => saveSetting('maintenance_mode', settings.maintenance_mode === 'true' ? 'false' : 'true')}
+                >
+                  {settings.maintenance_mode === 'true' ? <><ToggleRight className="w-4 h-4" />Yoqilgan</> : <><ToggleLeft className="w-4 h-4" />O'chirilgan</>}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Current settings */}
+            <Card className="border-gold/20 bg-card">
+              <CardHeader><CardTitle className="text-sm flex items-center gap-2"><Settings className="w-4 h-4 text-muted-foreground" />Joriy sozlamalar</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-xs font-mono">
+                  {Object.entries(settings).length === 0 ? (
+                    <p className="text-muted-foreground">Hali sozlamalar yo'q</p>
+                  ) : Object.entries(settings).map(([k, v]) => (
+                    <div key={k} className="flex gap-3">
+                      <span className="text-gold/70 shrink-0">{k}:</span>
+                      <span className="text-muted-foreground truncate">{v || '(bo\'sh)'}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* ── PREMIUM ── */}
