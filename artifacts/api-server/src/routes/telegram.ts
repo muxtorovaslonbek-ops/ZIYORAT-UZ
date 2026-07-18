@@ -71,9 +71,7 @@ router.post("/telegram/webhook", async (req, res) => {
   const text: string = message.text || "";
   const from = message.from || {};
 
-  const domains = process.env.REPLIT_DOMAINS || "";
-  const domain = domains.split(",")[0].trim();
-  const siteUrl = domain ? `https://${domain}/auth` : "https://ziyorat.uz/auth";
+  const siteUrl = "https://ziyoratuz.vercel.app/auth";
 
   if (text.startsWith("/start") || text === "/newcode") {
     const code = generateCode();
@@ -108,12 +106,12 @@ router.post("/telegram/webhook", async (req, res) => {
 
   if (text === "/help") {
     await sendMessage(chatId,
-      `ℹ️ *ZIYORAT UZ — Yordam*\n\n▪️ /start — Kirish kodi olish\n▪️ /newcode — Yangi kod yaratish\n\n🌐 ${siteUrl}`
+      `ℹ️ *ZIYORAT UZ — Yordam*\n\n▪️ /start — Kirish kodi olish\n▪️ /newcode — Yangi kod yaratish\n\n🌐 https://ziyoratuz.vercel.app`
     );
     return;
   }
 
-  await sendMessage(chatId, `🤔 Tushunmadim. /start yuboring va kod oling.\n👉 ${siteUrl}`);
+  await sendMessage(chatId, `🤔 Tushunmadim. /start yuboring va kod oling.\n👉 https://ziyoratuz.vercel.app/auth`);
 });
 
 // ── POST /api/telegram/auth ─────────────────────────────────────────────────

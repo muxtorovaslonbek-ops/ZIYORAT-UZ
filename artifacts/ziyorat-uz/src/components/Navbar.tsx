@@ -1,6 +1,6 @@
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Menu, User as UserIcon, LogOut, Heart, Star, Info, Map, Building2, UserCheck, Box, Home, Sun, Moon, Handshake, Sparkles, Users, Shirt, Crown, ShieldCheck, ArrowLeft, ShoppingBag, ChevronUp, ChevronDown } from 'lucide-react';
+import { Menu, User as UserIcon, LogOut, Heart, Star, Info, Map, Building2, UserCheck, Box, Home, Sun, Moon, Handshake, Sparkles, Users, Shirt, Crown, Shield, ArrowLeft, ShoppingBag, ChevronUp, ChevronDown, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
@@ -8,7 +8,7 @@ import { LanguageSwitcher } from './LanguageSwitcher';
 import { NotificationBell } from './NotificationBell';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
-import { useIsAdmin } from '@/hooks/useUserRole';
+import { useAdminSession } from '@/hooks/useAdminSession';
 import { useEffect, useRef, useState } from 'react';
 
 
@@ -16,7 +16,7 @@ export const Navbar = () => {
   const { t } = useTranslation();
   const { user, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
-  const { isAdmin } = useIsAdmin();
+  const { isAdmin, logout: adminLogout } = useAdminSession();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -202,11 +202,26 @@ export const Navbar = () => {
           </Button>
           <LanguageSwitcher />
 
-          {user ? (
+          {isAdmin ? (
+            /* ── Admin sifatida kirgan ── */
+            <>
+              <Link to="/admin">
+                <Button variant="ghost" size="icon" className="relative text-gold hover:bg-gold/10" title="Admin Panel">
+                  <div className="w-7 h-7 rounded-full bg-gold/20 border border-gold/40 flex items-center justify-center">
+                    <Shield className="w-3.5 h-3.5 text-gold" />
+                  </div>
+                </Button>
+              </Link>
+              <Button variant="ghost" size="icon" onClick={() => { adminLogout(); navigate('/'); }}
+                className="hidden sm:flex text-muted-foreground hover:text-destructive" title="Chiqish">
+                <LogOut className="w-4 h-4" />
+              </Button>
+            </>
+          ) : user ? (
+            /* ── Oddiy foydalanuvchi ── */
             <>
               <NotificationBell authToken={
                 (() => {
-                  // Pass TG or Supabase token for personalized inbox
                   const tg = localStorage.getItem('ziyorat_tg_session');
                   if (tg) return tg;
                   try {
@@ -228,6 +243,7 @@ export const Navbar = () => {
               </Button>
             </>
           ) : (
+            /* ── Kirilmagan ── */
             <Link to="/auth">
               <Button size="sm" className="bg-gold hover:bg-gold-soft text-noir font-semibold">
                 {t('nav.signin')}

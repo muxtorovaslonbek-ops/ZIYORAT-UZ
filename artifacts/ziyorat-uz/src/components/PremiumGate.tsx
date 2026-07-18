@@ -16,6 +16,13 @@ export const usePremium = () => {
   const [loading, setLoading] = useState(true);
 
   const check = useCallback(async () => {
+    // Admin always has full premium access
+    const adminToken = localStorage.getItem('ziyorat_admin_token');
+    if (adminToken) {
+      setStatus({ premium: true, requestStatus: 'approved' });
+      setLoading(false);
+      return;
+    }
     if (!authToken) {
       setStatus({ premium: false, requestStatus: null });
       setLoading(false);
