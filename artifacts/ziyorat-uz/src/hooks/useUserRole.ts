@@ -1,26 +1,20 @@
 import { useEffect, useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 
+// Admin check is done via the backend admin token — regular users are never admins.
+// This hook just returns false always (admin panel has its own auth flow).
 export const useIsAdmin = () => {
   const { user } = useAuth();
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const check = useCallback(async () => {
-    if (!user) { setIsAdmin(false); setLoading(false); return; }
-    setLoading(true);
-    const { data } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .eq('role', 'admin')
-      .maybeSingle();
-    setIsAdmin(!!data);
     setLoading(false);
-  }, [user]);
+  }, []);
 
-  useEffect(() => { check(); }, [check]);
+  useEffect(() => {
+    if (user !== undefined) check();
+  }, [user, check]);
 
   return { isAdmin, loading, refetch: check };
 };

@@ -15,7 +15,7 @@ import { Seo } from '@/components/Seo';
 import { LANGUAGES } from '@/lib/i18n';
 
 const Profile = () => {
-  const { user } = useAuth();
+  const { user, isTelegramUser } = useAuth();
   const { t, i18n } = useTranslation();
   const fileInput = useRef<HTMLInputElement>(null);
   const [fullName, setFullName] = useState('');
@@ -24,20 +24,28 @@ const Profile = () => {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Get the real user ID regardless of auth type
+  const userId = (user as any)?.id || (user as any)?.user_id;
+
   useEffect(() => {
     if (!user) return;
-    supabase.from('profiles').select('*').eq('id', user.id).maybeSingle().then(({ data }) => {
+    if (isTelegramUser) {
+      // For Telegram users, show data from the TG token directly
+      setFullName((user as any).full_name || '');
+      return;
+    }
+    supabase.from('profiles').select('*').eq('id', userId).maybeSingle().then(({ data }) => {
       if (data) {
         setFullName(data.full_name || '');
         setAvatarUrl(data.avatar_url || '');
         setLanguage(data.language || 'uz');
       }
     });
-  }, [user]);
+  }, [user, isTelegramUser, userId]);
 
   const uploadAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file || !user || isTelegramUser) return;
 
     const MIME_EXT: Record<string, string> = {
       'image/jpeg': 'jpg',
@@ -58,7 +66,7 @@ const Profile = () => {
     }
 
     setUploading(true);
-    const path = `${user.id}/avatar.${ext}`;
+    const path = `${userId}/avatar.${ext}`;
     const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, {
       upsert: true,
       contentType: file.type,
@@ -67,16 +75,22 @@ const Profile = () => {
     const { data } = supabase.storage.from('avatars').getPublicUrl(path);
     const url = `${data.publicUrl}?t=${Date.now()}`;
     setAvatarUrl(url);
-    await supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
+    await supabase.from('profiles').update({ avatar_url: url }).eq('id', userId);
     toast.success(t('profile.updated'));
     setUploading(false);
   };
 
-
   const save = async () => {
     if (!user) return;
     setLoading(true);
-    const { error } = await supabase.from('profiles').update({ full_name: fullName, language }).eq('id', user.id);
+    if (isTelegramUser) {
+      // For TG users, nothing to save in Supabase — just apply language
+      i18n.changeLanguage(language);
+      toast.success(t('profile.updated'));
+      setLoading(false);
+      return;
+    }
+    const { error } = await supabase.from('profiles').update({ full_name: fullName, language }).eq('id', userId);
     if (error) toast.error(error.message);
     else { toast.success(t('profile.updated')); i18n.changeLanguage(language); }
     setLoading(false);
@@ -114,13 +128,29 @@ const Profile = () => {
           </div>
 
           <div className="space-y-4">
-            <div>
-              <Label>{t('auth.email')}</Label>
-              <Input value={user?.email || ''} disabled className="bg-input border-gold/30" />
-            </div>
+            {isTelegramUser ? (
+              <div>
+                <Label>Telegram</Label>
+                <Input
+                  value={(user as any)?.telegram_username ? `@${(user as any).telegram_username}` : `ID: ${(user as any)?.telegram_id || ''}`}
+                  disabled
+                  className="bg-input border-gold/30"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label>{t('auth.email')}</Label>
+                <Input value={(user as any)?.email || ''} disabled className="bg-input border-gold/30" />
+              </div>
+            )}
             <div>
               <Label>{t('auth.fullName')}</Label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className="bg-input border-gold/30" />
+              <Input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                disabled={isTelegramUser}
+                className="bg-input border-gold/30"
+              />
             </div>
             <div>
               <Label>{t('profile.language')}</Label>
