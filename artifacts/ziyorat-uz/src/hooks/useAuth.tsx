@@ -37,25 +37,36 @@ const syncProfile = async (token: string, meta?: Record<string, unknown>) => {
   } catch { /* silent */ }
 };
 
-const parseTgToken = (token: string): TgUser | null => {
+// JWT uses base64url (RFC 4648): '-' instead of '+', '_' instead of '/'
+// Standard atob() does not handle this — we must convert first.
+const decodeJwtPayload = (token: string): Record<string, unknown> | null => {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    if (payload.type !== 'telegram') return null;
-    return {
-      user_id: payload.user_id,
-      full_name: payload.full_name || '',
-      telegram_id: payload.telegram_id || '',
-      telegram_username: payload.telegram_username || null,
-      email: payload.email || '',
-    };
+    const part = token.split('.')[1];
+    if (!part) return null;
+    // Convert base64url → base64, then add padding
+    const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, '=');
+    return JSON.parse(atob(padded));
   } catch { return null; }
 };
 
+const parseTgToken = (token: string): TgUser | null => {
+  const payload = decodeJwtPayload(token);
+  if (!payload || payload.type !== 'telegram') return null;
+  return {
+    user_id: String(payload.user_id || ''),
+    full_name: String(payload.full_name || ''),
+    telegram_id: String(payload.telegram_id || ''),
+    telegram_username: payload.telegram_username ? String(payload.telegram_username) : null,
+    email: String(payload.email || ''),
+  };
+};
+
 const isTgTokenExpired = (token: string): boolean => {
-  try {
-    const { exp } = JSON.parse(atob(token.split('.')[1]));
-    return exp && Date.now() / 1000 > exp;
-  } catch { return true; }
+  const payload = decodeJwtPayload(token);
+  if (!payload) return true;
+  const exp = payload.exp as number | undefined;
+  return !!exp && Date.now() / 1000 > exp;
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
