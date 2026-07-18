@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { LanguageSwitcher } from './LanguageSwitcher';
+import { NotificationBell } from './NotificationBell';
 import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { useIsAdmin } from '@/hooks/useUserRole';
@@ -203,6 +204,20 @@ export const Navbar = () => {
 
           {user ? (
             <>
+              <NotificationBell authToken={
+                (() => {
+                  // Pass TG or Supabase token for personalized inbox
+                  const tg = localStorage.getItem('ziyorat_tg_session');
+                  if (tg) return tg;
+                  try {
+                    const sb = localStorage.getItem(
+                      Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token')) || ''
+                    );
+                    if (sb) return JSON.parse(sb)?.access_token ?? null;
+                  } catch {}
+                  return null;
+                })()
+              } />
               <Link to="/profile">
                 <Button variant="ghost" size="icon" className="text-foreground hover:text-gold">
                   <UserIcon className="w-4 h-4" />
