@@ -65,8 +65,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [tgUser, setTgUser] = useState<TgUser | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Load Telegram session from localStorage
+  // Supabase auth listener + TG session loader (single combined effect to avoid race)
   useEffect(() => {
+    // Load TG session immediately (sync)
     const stored = localStorage.getItem(TG_SESSION_KEY);
     if (stored && !isTgTokenExpired(stored)) {
       const parsed = parseTgToken(stored);
@@ -74,14 +75,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setTgToken(stored);
         setTgUser(parsed);
         syncProfile(stored);
+      } else {
+        localStorage.removeItem(TG_SESSION_KEY);
       }
     } else if (stored) {
       localStorage.removeItem(TG_SESSION_KEY);
     }
-  }, []);
 
-  // Supabase auth listener
-  useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       setSupabaseUser(newSession?.user ?? null);
@@ -92,7 +92,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           telegram_id: newSession.user?.user_metadata?.telegram_id || null,
           telegram_username: newSession.user?.user_metadata?.telegram_username || null,
         });
-        // If a Supabase session comes in, clear any Telegram JWT
+        // Supabase session wins — clear TG session
         localStorage.removeItem(TG_SESSION_KEY);
         setTgToken(null);
         setTgUser(null);
