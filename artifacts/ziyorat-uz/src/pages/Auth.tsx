@@ -17,7 +17,7 @@ type Tab = 'signin' | 'signup' | 'telegram';
 
 const Auth = () => {
   const { t } = useTranslation();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
 
   const [tab, setTab] = useState<Tab>('signin');
@@ -25,10 +25,18 @@ const Auth = () => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [signupDone, setSignupDone] = useState(false);
 
   const [tgCode, setTgCode] = useState('');
   const [tgStep, setTgStep] = useState<'code' | 'done'>('code');
   const [tgLoading, setTgLoading] = useState(false);
+
+  // While auth is initializing, show spinner to prevent flash of login form
+  if (authLoading) return (
+    <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="w-10 h-10 rounded-full border-2 border-gold/30 border-t-gold animate-spin" />
+    </div>
+  );
 
   if (user) return <Navigate to="/profile" replace />;
 
@@ -45,23 +53,19 @@ const Auth = () => {
         });
         if (error) { toast.error(error.message); return; }
         if (data.session) {
-          toast.success("Ro'yxatdan o'tdingiz!");
+          // Auto-confirmed (email confirm disabled in Supabase settings)
+          toast.success("Ro'yxatdan o'tdingiz! Xush kelibsiz!");
           navigate('/profile');
         } else {
-          const { error: signInErr } = await supabase.auth.signInWithPassword({ email, password });
-          if (signInErr) {
-            toast.success("Ro'yxatdan o'tdingiz! Emailingizni tasdiqlang.");
-          } else {
-            toast.success('Xush kelibsiz!');
-            navigate('/profile');
-          }
+          // Email confirmation required — show success screen, don't try to sign in
+          setSignupDone(true);
         }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
           const msg = error.message.toLowerCase().includes('email not confirmed')
-            ? 'Email hali tasdiqlanmagan. Inbox ni tekshiring.'
-            : error.message.toLowerCase().includes('invalid login')
+            ? "Email hali tasdiqlanmagan. Inbox'ingizni tekshiring."
+            : error.message.toLowerCase().includes('invalid login') || error.message.toLowerCase().includes('invalid credentials')
             ? "Email yoki parol noto'g'ri."
             : error.message;
           toast.error(msg);
@@ -149,8 +153,28 @@ const Auth = () => {
             ))}
           </div>
 
+          {/* ── Signup success screen ── */}
+          {signupDone && (
+            <div className="flex flex-col items-center gap-4 py-6 text-center">
+              <CheckCircle className="w-16 h-16 text-green-500" />
+              <div>
+                <p className="text-lg font-semibold text-green-500">Ro'yxat muvaffaqiyatli!</p>
+                <p className="text-sm text-muted-foreground mt-2">
+                  <strong>{email}</strong> manziliga tasdiqlash xati yuborildi.<br />
+                  Emailingizni tasdiqlang va keyin kiring.
+                </p>
+              </div>
+              <Button
+                onClick={() => { setSignupDone(false); setTab('signin'); }}
+                className="bg-gold hover:bg-gold-soft text-noir font-semibold"
+              >
+                Kirishga o'tish
+              </Button>
+            </div>
+          )}
+
           {/* ── Email sign-in / sign-up ── */}
-          {(tab === 'signin' || tab === 'signup') && (
+          {!signupDone && (tab === 'signin' || tab === 'signup') && (
             <form onSubmit={submitEmail} className="space-y-4">
               {tab === 'signup' && (
                 <div>
@@ -258,7 +282,7 @@ const Auth = () => {
           )}
 
           {/* Sign in / sign up toggle */}
-          {(tab === 'signin' || tab === 'signup') && (
+          {!signupDone && (tab === 'signin' || tab === 'signup') && (
             <p className="text-center text-sm text-muted-foreground mt-6">
               {tab === 'signin' ? t('auth.noAccount') : "Hisobingiz bormi?"}{' '}
               <button
