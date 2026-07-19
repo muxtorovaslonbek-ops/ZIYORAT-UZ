@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "r2E2vlTaSQ63CtFKh5mP2"
+uri = "file://ziyorat-github.zip"
+type = "unspecified"
+title = "ziyorat-uz — GitHub uchun loyiha (9.6 MB, 311 fayl)"
