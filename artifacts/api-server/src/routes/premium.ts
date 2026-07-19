@@ -4,9 +4,8 @@ import jwt from 'jsonwebtoken';
 
 const router = Router();
 
-const SUPABASE_URL = 'https://hoofyqhayogecrmemtss.supabase.co';
-const SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhvb2Z5cWhheW9nZWNybWVtdHNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4MzkyMDUsImV4cCI6MjA5MjQxNTIwNX0.NPbXubQcVKsZcBfi02DMvHJM8Ssk6yyUuDA-KsHpSEQ';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const JWT_SECRET = process.env.SESSION_SECRET || 'ziyorat_fallback_secret_2026';
 
 // Resolve user ID from either Supabase or Telegram JWT

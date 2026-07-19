@@ -3,10 +3,9 @@ import react from "@vitejs/plugin-react-swc";
 import { VitePWA } from 'vite-plugin-pwa';
 import path from "path";
 
+// PORT faqat dev/serve vaqtida kerak, build vaqtida emas
 const rawPort = process.env.PORT;
-if (!rawPort) throw new Error("PORT environment variable is required.");
-const port = Number(rawPort);
-if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT: "${rawPort}"`);
+const port = rawPort ? Number(rawPort) : 3000;
 
 const basePath = process.env.BASE_PATH ?? "/";
 
