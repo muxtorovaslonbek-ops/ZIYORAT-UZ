@@ -1,0 +1,20 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "r2E2vlTaSQ63CtFKh5mP2"
+uri = "file://ziyorat-github.zip"
+type = "unspecified"
+title = "ziyorat-uz — GitHub uchun loyiha (9.6 MB, 311 fayl)"
+
+[[outputs]]
+id = "0jHjyXNIei_YRXoOGfKKe"
+uri = "file://ziyorat-1-frontend.zip"
+type = "unspecified"
+title = "1-qism: Frontend (React) — 267 fayl, 9.5 MB"
+
+[[outputs]]
+id = "90MOEXtcovNOgmGMHEL6s"
+uri = "file://ziyorat-2-backend.zip"
+type = "unspecified"
+title = "2-qism: Backend (API Server + DB) — 44 fayl, 92 KB"

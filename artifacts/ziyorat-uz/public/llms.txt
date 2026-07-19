@@ -1,0 +1,23 @@
+# ZIYORAT UZ
+
+> Oʻzbekiston ziyorat turizmi platformasi: 14 viloyat boʻyicha ziyoratgohlar, gidlar, mehmonxonalar, 3D virtual sayohat va AI yoʻlboshchi — 6 tilda.
+
+## Pages
+
+- [Bosh sahifa](/): Loyiha kirish va asosiy boʻlimlar.
+- [Sayohat rejasi](/plan): 14 viloyat boʻyicha sayohat rejalari.
+- [Ziyoratgohlar](/ziyoratgohlar): Oʻzbekistondagi muqaddas joylar reestri.
+- [Gidlar](/gidlar): Koʻp tilli professional gidlar katalogi.
+- [3D Sayohat](/3d-sayohat): Registon, Bibi-Xonim va boshqa obidalarning 3D modellari.
+- [AI Yoʻlboshchi](/ai-yolboshchi): Sun’iy intellekt asosidagi shaxsiy yoʻlboshchi.
+- [Zamonlar Aro](/zamonlar-aro): Tarixiy olimlar bilan AI suhbati.
+- [Tarixiy Liboslar](/tarixiy-liboslar): Oʻzini turli davr liboslarida koʻrish.
+- [Premium](/premium): Premium obuna va imkoniyatlar.
+- [Hamkorlik](/shartnoma): Gid, mehmonxona va restoran egalari uchun ariza.
+- [Biz haqimizda](/about): Loyiha va jamoa haqida.
+
+## Optional
+
+- [Samarqand rejasi](/plan/samarqand): Registon, Bibi-Xonim, Shohi-Zinda.
+- [Buxoro rejasi](/plan/buxoro): Poi-Kalon, Ark qalʼasi, Mir-i Arab.
+- [Xorazm rejasi](/plan/xorazm): Ichan-Qalʼa, Kalta-Minor.
