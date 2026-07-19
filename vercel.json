@@ -1,0 +1,21 @@
+{
+  "buildCommand": "cd artifacts/ziyorat-uz && pnpm install && pnpm run build",
+  "outputDirectory": "artifacts/ziyorat-uz/dist/public",
+  "installCommand": "npm install -g pnpm && pnpm install --frozen-lockfile",
+  "framework": null,
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ],
+  "env": {
+    "PORT": "3000",
+    "BASE_PATH": "/"
+  }
+}
